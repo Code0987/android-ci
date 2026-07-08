@@ -1,59 +1,54 @@
-FROM ubuntu:18.04
+FROM ubuntu:24.04
+
 LABEL maintainer="code0987"
+LABEL description="Android CI image with JDK 17 and modern Android SDK"
 
-ENV VERSION_SDK_TOOLS "4333796"
+ARG CMDTOOLS_VERSION=14742923
+ARG JDK_VERSION=17
 
-ENV ANDROID_HOME "/sdk"
-ENV PATH "$PATH:${ANDROID_HOME}/tools"
-ENV DEBIAN_FRONTEND noninteractive
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=en_US.UTF-8 \
+    LANGUAGE=en_US:en \
+    LC_ALL=en_US.UTF-8 \
+    ANDROID_HOME=/sdk \
+    ANDROID_SDK_ROOT=/sdk
 
-RUN apt-get -qq update
-RUN apt-get install -y locales
-RUN locale-gen en_US.UTF-8
-ENV LANG='en_US.UTF-8' LANGUAGE='en_US:en' LC_ALL='en_US.UTF-8'
+ENV PATH="${PATH}:${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools:${ANDROID_HOME}/build-tools/36.0.0"
 
-RUN apt-get install -qqy --no-install-recommends gnupg2 ca-certificates curl
-
-RUN curl -sL https://deb.nodesource.com/setup_10.x | bash -
-RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add -
-RUN echo "deb https://dl.yarnpkg.com/debian/ stable main" | tee /etc/apt/sources.list.d/yarn.list
-
-RUN echo "deb https://dl.bintray.com/sobolevn/deb git-secret main" | tee -a /etc/apt/sources.list
-RUN curl -sS https://api.bintray.com/users/sobolevn/keys/gpg/public.key | apt-key add -
-RUN apt-get update && apt-get install -y gawk git-secret
-
-RUN apt-get install -qqy --no-install-recommends \
-      bzip2 \
-      git \
-      nodejs \
-      yarn \
-      html2text \
-      openjdk-8-jdk \
-      libc6-i386 \
-      lib32stdc++6 \
-      lib32gcc1 \
-      lib32ncurses5 \
-      lib32z1 \
-      unzip \
+# System packages + JDK 17
+RUN apt-get update -qq \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        locales \
+        openjdk-${JDK_VERSION}-jdk-headless \
+        unzip \
+        wget \
+        zip \
+    && locale-gen en_US.UTF-8 \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-RUN rm -f /etc/ssl/certs/java/cacerts; \
-    /var/lib/dpkg/info/ca-certificates-java.postinst configure
+# Android command-line tools -> $ANDROID_HOME/cmdline-tools/latest
+RUN mkdir -p ${ANDROID_HOME}/cmdline-tools \
+    && curl -fsSL "https://dl.google.com/android/repository/commandlinetools-linux-${CMDTOOLS_VERSION}_latest.zip" -o /tmp/cmdline-tools.zip \
+    && unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools \
+    && mv /tmp/cmdline-tools/cmdline-tools ${ANDROID_HOME}/cmdline-tools/latest \
+    && rm -rf /tmp/cmdline-tools /tmp/cmdline-tools.zip
 
-RUN curl -s https://dl.google.com/android/repository/sdk-tools-linux-${VERSION_SDK_TOOLS}.zip > /sdk.zip && \
-    unzip /sdk.zip -d /sdk && \
-    rm -v /sdk.zip
+# Accept licenses and install SDK packages listed in packages.txt
+COPY packages.txt /sdk/packages.txt
+RUN mkdir -p /root/.android \
+    && touch /root/.android/repositories.cfg \
+    && yes | sdkmanager --licenses >/dev/null || true \
+    && PACKAGES="" \
+    && while IFS= read -r package || [ -n "$package" ]; do \
+         case "$package" in ''|\#*) continue ;; esac; \
+         PACKAGES="${PACKAGES}${package} "; \
+       done < /sdk/packages.txt \
+    && echo "Installing: ${PACKAGES}" \
+    && sdkmanager --install ${PACKAGES} \
+    && rm -rf /tmp/* /var/tmp/* \
+    && sdkmanager --list_installed
 
-RUN mkdir -p $ANDROID_HOME/licenses/ \
-  && echo "8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e\n24333f8a63b6825ea9c5514f83c2829b004d1fee" > $ANDROID_HOME/licenses/android-sdk-license \
-  && echo "b0d7c9149880615a01390ea4ed4d92ab022382fc\n504667f4c0de7af1a06de9f4b1727b84351f2910\n84831b9409646a918e30573bab4c9c91346d8abd" > $ANDROID_HOME/licenses/android-sdk-preview-license
-
-RUN yes | $ANDROID_HOME/tools/bin/sdkmanager "platforms;android-29"
-
-ADD packages.txt /sdk
-RUN mkdir -p /root/.android && \
-  touch /root/.android/repositories.cfg && \
-  ${ANDROID_HOME}/tools/bin/sdkmanager --update
-
-RUN while read -r package; do PACKAGES="${PACKAGES}${package} "; done < /sdk/packages.txt && \
-    ${ANDROID_HOME}/tools/bin/sdkmanager ${PACKAGES}
+WORKDIR /project
