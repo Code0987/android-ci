@@ -1,6 +1,8 @@
 # Android CI
 
-[![Android CI on Docker Hub](https://img.shields.io/docker/cloud/build/code0987/android-ci.svg)](https://hub.docker.com/r/code0987/android-ci)
+[![Build and test](https://github.com/Code0987/android-ci/actions/workflows/build.yml/badge.svg)](https://github.com/Code0987/android-ci/actions/workflows/build.yml)
+[![GitHub release](https://img.shields.io/github/v/release/Code0987/android-ci)](https://github.com/Code0987/android-ci/releases)
+[![Docker Image](https://img.shields.io/docker/v/code0987/android-ci?sort=semver&label=dockerhub)](https://hub.docker.com/r/code0987/android-ci)
 
 Docker image for building Android apps in CI. Includes **JDK 17**, Android SDK command-line tools, platform-tools, build-tools, and platforms **API 34–36**.
 
@@ -39,7 +41,7 @@ If you still need the old stack, pin a historical image digest or keep a `legacy
 *.gitlab-ci.yml*
 
 ```yml
-image: code0987/android-ci:latest
+image: code0987/android-ci:2.0.0
 
 before_script:
   - export GRADLE_USER_HOME="$CI_PROJECT_DIR/.gradle"
@@ -74,7 +76,7 @@ on: [push, pull_request]
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: code0987/android-ci:latest
+    container: code0987/android-ci:2.0.0
 
     steps:
       - uses: actions/checkout@v4
@@ -89,7 +91,7 @@ jobs:
 ### Local build
 
 ```bash
-docker run --rm -v "$PWD":/project -w /project code0987/android-ci:latest \
+docker run --rm -v "$PWD":/project -w /project code0987/android-ci:2.0.0 \
   ./gradlew assembleDebug --no-daemon
 ```
 
@@ -116,3 +118,21 @@ docker run --rm android-ci:local java -version
 docker run --rm android-ci:local sdkmanager --version
 docker run --rm android-ci:local sdkmanager --list_installed
 ```
+
+
+## Releases
+
+Images are published to Docker Hub as `code0987/android-ci` on version tags (`vMAJOR.MINOR.PATCH`).
+
+| Tag | Meaning |
+|-----|---------|
+| `2.0.0` / `v2.0.0` | This release |
+| `2` | Latest v2.x |
+| `36.0.0` | Build-tools version (legacy branch naming) |
+| `latest` | Latest stable release |
+
+```bash
+docker pull code0987/android-ci:2.0.0
+```
+
+See [CHANGELOG.md](CHANGELOG.md). Release workflow: `.github/workflows/release.yml`.

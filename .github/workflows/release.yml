@@ -1,0 +1,186 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "release" to publish from VERSION to Docker Hub'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: code0987/android-ci
+
+jobs:
+  tag:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate confirmation and create tag
+        run: |
+          if [ "${{ inputs.confirm }}" != "release" ]; then
+            echo "::error::Refusing to release. Confirmation input must be exactly: release"
+            exit 1
+          fi
+          VERSION=$(tr -d '[:space:]' < VERSION)
+          TAG="v${VERSION}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG already exists. Bump VERSION for a new release."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+          echo "Pushed $TAG. The tag-push Release workflow will publish the image."
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag metadata
+        id: meta
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION=$(tr -d '[:space:]' < VERSION)
+          EXPECTED="v${VERSION}"
+          if [ "$TAG" != "$EXPECTED" ]; then
+            echo "::error::Tag '$TAG' does not match VERSION file ('$EXPECTED')."
+            exit 1
+          fi
+          # build-tools version from packages.txt (historical Docker tag style)
+          BUILD_TOOLS=$(grep -E '^build-tools;' packages.txt | head -1 | cut -d'; -f2)
+          MAJOR="${VERSION%%.*}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
+          echo "build_tools=$BUILD_TOOLS" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract changelog section
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          import os
+          version = os.environ["VERSION"]
+          text = Path("CHANGELOG.md").read_text()
+          marker = f"## [{version}]"
+          start = text.find(marker)
+          if start == -1:
+              body = f"Release v{version}. See CHANGELOG.md for details.\n"
+          else:
+              rest = text[start:]
+              lines = rest.splitlines()
+              chunk = [lines[0]]
+              for line in lines[1:]:
+                  if line.startswith("## [") and not line.startswith(marker):
+                      break
+                  chunk.append(line)
+              body = "\n".join(chunk).strip() + "\n"
+          Path("release-notes.md").write_text(body)
+          PY
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+
+      - name: Build, smoke-test, and push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          load: true
+          tags: android-ci:release
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.title=android-ci
+            org.opencontainers.image.description=Android CI image with JDK 17 and modern Android SDK
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Smoke tests
+        run: |
+          set -euo pipefail
+          docker run --rm android-ci:release java -version 2>&1 | tee /tmp/java-version.txt
+          grep -q 'openjdk version "17' /tmp/java-version.txt
+          docker run --rm android-ci:release sdkmanager --version
+          docker run --rm android-ci:release sdkmanager --list_installed | tee /tmp/sdk-packages.txt
+          for pkg in \
+            'build-tools;36.0.0' \
+            'platform-tools' \
+            'platforms;android-34' \
+            'platforms;android-35' \
+            'platforms;android-36'
+          do
+            grep -F "$pkg" /tmp/sdk-packages.txt
+          done
+          docker run --rm android-ci:release bash -c '
+            set -euo pipefail
+            test -d "${ANDROID_HOME}/cmdline-tools/latest/bin"
+            test -d "${ANDROID_HOME}/build-tools/36.0.0"
+          '
+
+      - name: Tag and push to Docker Hub
+        run: |
+          set -euo pipefail
+          IMAGE="${{ steps.meta.outputs.image }}"
+          VERSION="${{ steps.meta.outputs.version }}"
+          TAG="${{ steps.meta.outputs.tag }}"
+          BUILD_TOOLS="${{ steps.meta.outputs.build_tools }}"
+          MAJOR="${{ steps.meta.outputs.major }}"
+
+          docker tag android-ci:release "${IMAGE}:${VERSION}"
+          docker tag android-ci:release "${IMAGE}:${TAG}"
+          docker tag android-ci:release "${IMAGE}:${MAJOR}"
+          docker tag android-ci:release "${IMAGE}:latest"
+          if [ -n "${BUILD_TOOLS}" ]; then
+            docker tag android-ci:release "${IMAGE}:${BUILD_TOOLS}"
+          fi
+
+          docker push "${IMAGE}:${VERSION}"
+          docker push "${IMAGE}:${TAG}"
+          docker push "${IMAGE}:${MAJOR}"
+          docker push "${IMAGE}:latest"
+          if [ -n "${BUILD_TOOLS}" ]; then
+            docker push "${IMAGE}:${BUILD_TOOLS}"
+          fi
+
+          echo "Pushed ${IMAGE}:{${VERSION},${TAG},${MAJOR},latest${BUILD_TOOLS:+,${BUILD_TOOLS}}}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.tag }}
+          body_path: release-notes.md
+          generate_release_notes: false

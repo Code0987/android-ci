@@ -6,13 +6,17 @@ on:
     paths:
       - Dockerfile
       - packages.txt
+      - VERSION
       - .github/workflows/build.yml
+      - .github/workflows/release.yml
   pull_request:
     branches: [master]
     paths:
       - Dockerfile
       - packages.txt
+      - VERSION
       - .github/workflows/build.yml
+      - .github/workflows/release.yml
   workflow_dispatch:
 
 concurrency:
