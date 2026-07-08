@@ -60,24 +60,31 @@ jobs:
       - name: Resolve tag metadata
         id: meta
         run: |
-          set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
-          VERSION="$(tr -d "[:space:]" < VERSION)"
-          EXPECTED="v${VERSION}"
-          if [ "${TAG}" != "${EXPECTED}" ]; then
-            echo "::error::Tag ${TAG} does not match VERSION file ${EXPECTED}"
-            exit 1
-          fi
-          BUILD_TOOLS="$(awk -F'; '/^build-tools;/ {print $2; exit}' packages.txt)"
-          MAJOR="${VERSION%%.*}"
-          {
-            echo "tag=${TAG}"
-            echo "version=${VERSION}"
-            echo "major=${MAJOR}"
-            echo "build_tools=${BUILD_TOOLS}"
-            echo "image=${IMAGE_NAME}"
-          } >> "${GITHUB_OUTPUT}"
-          echo "Resolved version=${VERSION} build_tools=${BUILD_TOOLS}"
+          python3 <<'PY'
+          from pathlib import Path
+          import os
+          tag = os.environ["GITHUB_REF_NAME"]
+          version = Path("VERSION").read_text().strip()
+          expected = f"v{version}"
+          if tag != expected:
+              raise SystemExit(f"::error::Tag {tag} does not match VERSION file {expected}")
+          build_tools = ""
+          for line in Path("packages.txt").read_text().splitlines():
+              line = line.strip()
+              if line.startswith("build-tools;"):
+                  build_tools = line.split(";", 1)[1]
+                  break
+          major = version.split(".", 1)[0]
+          image = os.environ["IMAGE_NAME"]
+          out = Path(os.environ["GITHUB_OUTPUT"])
+          with out.open("a") as f:
+              f.write(f"tag={tag}\n")
+              f.write(f"version={version}\n")
+              f.write(f"major={major}\n")
+              f.write(f"build_tools={build_tools}\n")
+              f.write(f"image={image}\n")
+          print(f"Resolved version={version} build_tools={build_tools}")
+          PY
 
       - name: Extract changelog section
         run: |
