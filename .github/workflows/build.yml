@@ -9,6 +9,7 @@ on:
       - VERSION
       - action.yml
       - entrypoint.sh
+      - sample/**
       - .github/workflows/build.yml
       - .github/workflows/release.yml
   pull_request:
@@ -19,6 +20,7 @@ on:
       - VERSION
       - action.yml
       - entrypoint.sh
+      - sample/**
       - .github/workflows/build.yml
       - .github/workflows/release.yml
   workflow_dispatch:
@@ -97,3 +99,34 @@ jobs:
           set -e
           test "$status" -ne 0
 
+      - name: Integration — build sample app (container)
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}/sample:/project" \
+            -w /project \
+            -e GRADLE_USER_HOME=/project/.gradle \
+            android-ci:test \
+            bash -lc 'chmod +x ./gradlew && ./gradlew assembleDebug --no-daemon --stacktrace'
+          test -f sample/app/build/outputs/apk/debug/app-debug.apk
+          ls -lh sample/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Integration — build sample app (action entrypoint)
+        run: |
+          set -euo pipefail
+          # Simulate the GitHub Action mount layout
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/github/workspace" \
+            -e GITHUB_WORKSPACE=/github/workspace \
+            --entrypoint /android-ci-entrypoint \
+            android-ci:test \
+            'cd sample && chmod +x ./gradlew && ./gradlew assembleDebug --no-daemon --stacktrace'
+          test -f sample/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload sample APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sample-app-debug
+          path: sample/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

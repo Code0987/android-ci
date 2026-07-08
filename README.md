@@ -164,6 +164,17 @@ docker run --rm android-ci:local sdkmanager --version
 docker run --rm android-ci:local sdkmanager --list_installed
 ```
 
+
+## Integration test sample
+
+`sample/` is a minimal Android app (AGP 8.7, compileSdk 35) built in CI against the local image to prove the toolchain works end-to-end.
+
+```bash
+docker run --rm -v "$PWD/sample":/project -w /project ghcr.io/code0987/android-ci:2.1.0   ./gradlew assembleDebug --no-daemon
+```
+
+See [sample/README.md](sample/README.md).
+
 ## Releases
 
 Images are published to **GHCR** on version tags (`vMAJOR.MINOR.PATCH`) via `.github/workflows/release.yml`.
