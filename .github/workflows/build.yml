@@ -1,0 +1,80 @@
+name: Build and test
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - Dockerfile
+      - packages.txt
+      - .github/workflows/build.yml
+  pull_request:
+    branches: [master]
+    paths:
+      - Dockerfile
+      - packages.txt
+      - .github/workflows/build.yml
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: android-ci:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test — Java
+        run: |
+          docker run --rm android-ci:test java -version 2>&1 | tee /tmp/java-version.txt
+          grep -q 'openjdk version "17' /tmp/java-version.txt
+
+      - name: Smoke test — sdkmanager
+        run: |
+          docker run --rm android-ci:test sdkmanager --version
+          docker run --rm android-ci:test which sdkmanager
+          docker run --rm android-ci:test which adb
+
+      - name: Smoke test — installed packages
+        run: |
+          docker run --rm android-ci:test sdkmanager --list_installed | tee /tmp/sdk-packages.txt
+          for pkg in \
+            'build-tools;36.0.0' \
+            'platform-tools' \
+            'platforms;android-34' \
+            'platforms;android-35' \
+            'platforms;android-36'
+          do
+            grep -F "$pkg" /tmp/sdk-packages.txt
+          done
+
+      - name: Smoke test — environment
+        run: |
+          docker run --rm android-ci:test bash -c '
+            set -euo pipefail
+            test -n "${ANDROID_HOME}"
+            test -n "${ANDROID_SDK_ROOT}"
+            test -d "${ANDROID_HOME}/cmdline-tools/latest/bin"
+            test -d "${ANDROID_HOME}/build-tools/36.0.0"
+            test -d "${ANDROID_HOME}/platforms/android-36"
+            echo "ANDROID_HOME=${ANDROID_HOME}"
+            echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
+          '
