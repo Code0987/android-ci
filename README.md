@@ -2,9 +2,15 @@
 
 [![Build and test](https://github.com/Code0987/android-ci/actions/workflows/build.yml/badge.svg)](https://github.com/Code0987/android-ci/actions/workflows/build.yml)
 [![GitHub release](https://img.shields.io/github/v/release/Code0987/android-ci)](https://github.com/Code0987/android-ci/releases)
-[![Docker Image](https://img.shields.io/docker/v/code0987/android-ci?sort=semver&label=dockerhub)](https://hub.docker.com/r/code0987/android-ci)
+[![GHCR](https://img.shields.io/badge/ghcr.io-code0987%2Fandroid--ci-blue)](https://github.com/Code0987/android-ci/pkgs/container/android-ci)
 
-Docker image for building Android apps in CI. Includes **JDK 17**, Android SDK command-line tools, platform-tools, build-tools, and platforms **API 34–36**.
+Container image for building Android apps in CI. Includes **JDK 17**, Android SDK command-line tools, platform-tools, build-tools, and platforms **API 34–36**.
+
+Published on **GitHub Container Registry** only:
+
+```text
+ghcr.io/code0987/android-ci
+```
 
 ## Image contents
 
@@ -24,24 +30,49 @@ Environment:
 
 ## Breaking changes (v2 / 2026 refresh)
 
-Compared to the previous image (Ubuntu 18.04 / JDK 8 / API 25–30):
+Compared to the previous image (Ubuntu 18.04 / JDK 8 / API 25–30 on Docker Hub):
 
+- **Publish target:** Docker Hub → **GHCR** (`ghcr.io/code0987/android-ci`)
 - **JDK 8 → 17** — required for Android Gradle Plugin 8.x and 9.x
 - **Legacy `tools/` package replaced** by `cmdline-tools/latest`
 - **Platforms 25–30 removed**; only 34–36 are preinstalled
 - **Node, Yarn, git-secret removed** — install in your job if needed
 - Obsolete SDK “extras” (m2repository, constraint-layout packages) removed; use Maven
 
-If you still need the old stack, pin a historical image digest or keep a `legacy` tag from the previous Dockerfile.
-
 ## Sample usages
+
+### GitHub Actions
+
+*.github/workflows/android-ci.yml*
+
+```yml
+name: Android CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: ghcr.io/code0987/android-ci:2.0.0
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          export GRADLE_USER_HOME="$GITHUB_WORKSPACE/.gradle"
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon
+```
+
+If the package is private, add a login step with `GITHUB_TOKEN` or a PAT that can `read:packages`.
 
 ### GitLab CI/CD
 
 *.gitlab-ci.yml*
 
 ```yml
-image: code0987/android-ci:2.0.0
+image: ghcr.io/code0987/android-ci:2.0.0
 
 before_script:
   - export GRADLE_USER_HOME="$CI_PROJECT_DIR/.gradle"
@@ -64,34 +95,11 @@ build:
       - app/build/outputs/apk/
 ```
 
-### GitHub Actions
-
-*.github/workflows/android-ci.yml*
-
-```yml
-name: Android CI
-
-on: [push, pull_request]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    container: code0987/android-ci:2.0.0
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build
-        run: |
-          export GRADLE_USER_HOME="$GITHUB_WORKSPACE/.gradle"
-          chmod +x ./gradlew
-          ./gradlew assembleDebug --no-daemon
-```
-
-### Local build
+### Local
 
 ```bash
-docker run --rm -v "$PWD":/project -w /project code0987/android-ci:2.0.0 \
+docker pull ghcr.io/code0987/android-ci:2.0.0
+docker run --rm -v "$PWD":/project -w /project ghcr.io/code0987/android-ci:2.0.0 \
   ./gradlew assembleDebug --no-daemon
 ```
 
@@ -119,20 +127,19 @@ docker run --rm android-ci:local sdkmanager --version
 docker run --rm android-ci:local sdkmanager --list_installed
 ```
 
-
 ## Releases
 
-Images are published to Docker Hub as `code0987/android-ci` on version tags (`vMAJOR.MINOR.PATCH`).
+Images are published to **GHCR** on version tags (`vMAJOR.MINOR.PATCH`) via `.github/workflows/release.yml`.
 
 | Tag | Meaning |
 |-----|---------|
 | `2.0.0` / `v2.0.0` | This release |
-| `2` | Latest v2.x |
-| `36.0.0` | Build-tools version (legacy branch naming) |
+| `2` / `v2` | Latest v2.x |
+| `36.0.0` | Build-tools version (legacy naming) |
 | `latest` | Latest stable release |
 
 ```bash
-docker pull code0987/android-ci:2.0.0
+docker pull ghcr.io/code0987/android-ci:2.0.0
 ```
 
-See [CHANGELOG.md](CHANGELOG.md). Release workflow: `.github/workflows/release.yml`.
+See [CHANGELOG.md](CHANGELOG.md).

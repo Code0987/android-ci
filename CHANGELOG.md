@@ -14,19 +14,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Android SDK bootstrap: legacy `tools/` → **cmdline-tools** (`CMDTOOLS_VERSION` build ARG)
 - Preinstalled platforms: API 25–30 → **API 34–36**
 - Build-tools: 29.0.2 → **36.0.0**
+- Publish target: Docker Hub → **GitHub Container Registry** (`ghcr.io/code0987/android-ci`)
 
 ### Removed
 
 - Node.js, Yarn, git-secret, html2text, and obsolete SDK extras (m2repository / constraint-layout packages)
+- Docker Hub publish path and related secrets
 
 ### Added
 
-- GitHub Actions build/smoke-test and Docker Hub release workflows
+- GitHub Actions build/smoke-test and GHCR release workflows (SBOM + provenance)
 - `VERSION` file and this changelog
 
 ### Migration
 
-- Pin `code0987/android-ci:2.0.0` (or `:36.0.0`) if you need a stable tag; `:latest` tracks the modern image
+- Use `ghcr.io/code0987/android-ci:2.0.0` (or `:latest`) instead of `code0987/android-ci` on Docker Hub
 - Install extra platforms/NDK in the job via `sdkmanager` when needed
 - Legacy JDK 8 consumers must pin an older image digest or rebuild from pre-2.0.0 history
 

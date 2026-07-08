@@ -7,19 +7,19 @@ on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: 'Type "release" to publish from VERSION to Docker Hub'
+        description: 'Type "release" to publish from VERSION to GHCR'
         required: true
         type: string
 
 permissions:
   contents: write
+  packages: write
+  id-token: write
+  attestations: write
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
-
-env:
-  IMAGE_NAME: code0987/android-ci
 
 jobs:
   tag:
@@ -36,10 +36,10 @@ jobs:
             echo "::error::Refusing to release. Confirmation input must be exactly: release"
             exit 1
           fi
-          VERSION=$(tr -d '[:space:]' < VERSION)
+          VERSION="$(python3 -c 'print(open("VERSION").read().strip())')"
           TAG="v${VERSION}"
           if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "::error::Tag $TAG already exists. Bump VERSION for a new release."
+            echo "::error::Tag ${TAG} already exists. Bump VERSION for a new release."
             exit 1
           fi
           git config user.name "github-actions[bot]"
@@ -75,15 +75,17 @@ jobs:
                   build_tools = line.split(";", 1)[1]
                   break
           major = version.split(".", 1)[0]
-          image = os.environ["IMAGE_NAME"]
+          owner = os.environ["GITHUB_REPOSITORY_OWNER"].lower()
+          image = f"ghcr.io/{owner}/android-ci"
           out = Path(os.environ["GITHUB_OUTPUT"])
           with out.open("a") as f:
               f.write(f"tag={tag}\n")
               f.write(f"version={version}\n")
               f.write(f"major={major}\n")
+              f.write(f"major_tag=v{major}\n")
               f.write(f"build_tools={build_tools}\n")
               f.write(f"image={image}\n")
-          print(f"Resolved version={version} build_tools={build_tools}")
+          print(f"Resolved image={image} version={version} build_tools={build_tools}")
           PY
 
       - name: Extract changelog section
@@ -114,34 +116,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Check Docker Hub secrets
-        env:
-          DOCKER_USER: ${{ secrets.DOCKER_HUB_USERNAME }}
-          DOCKER_PAT: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
-        run: |
-          python3 - <<'PY'
-          import os, sys
-          user = os.environ.get("DOCKER_USER") or ""
-          pat = os.environ.get("DOCKER_PAT") or ""
-          if not user or not pat:
-              print("::error::Missing Docker Hub secrets on this repository.")
-              print("::error::Add repository secrets (Settings → Secrets and variables → Actions):")
-              print("::error::  DOCKER_HUB_USERNAME = your Docker Hub username (code0987)")
-              print("::error::  DOCKER_HUB_ACCESS_TOKEN = a Docker Hub access token with write scope")
-              print("::error::Then re-run: gh workflow run release.yml -f confirm=release")
-              print("::error::Or move tag: git push origin :refs/tags/v2.0.0 && git push origin v2.0.0")
-              sys.exit(1)
-          print(f"Docker Hub username present (len={len(user)}), token present (len={len(pat)})")
-          PY
-
-      - name: Log in to Docker Hub
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build, smoke-test, and push
-        id: push
+      - name: Build image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -157,6 +140,7 @@ jobs:
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.url=https://github.com/${{ github.repository }}/pkgs/container/android-ci
 
       - name: Smoke tests
         run: |
@@ -180,18 +164,20 @@ jobs:
             test -d "${ANDROID_HOME}/build-tools/36.0.0"
           '
 
-      - name: Tag and push to Docker Hub
+      - name: Tag and push to GHCR
+        id: push
         run: |
           set -euo pipefail
           IMAGE="${{ steps.meta.outputs.image }}"
           VERSION="${{ steps.meta.outputs.version }}"
           TAG="${{ steps.meta.outputs.tag }}"
-          BUILD_TOOLS="${{ steps.meta.outputs.build_tools }}"
           MAJOR="${{ steps.meta.outputs.major }}"
+          BUILD_TOOLS="${{ steps.meta.outputs.build_tools }}"
 
           docker tag android-ci:release "${IMAGE}:${VERSION}"
           docker tag android-ci:release "${IMAGE}:${TAG}"
           docker tag android-ci:release "${IMAGE}:${MAJOR}"
+          docker tag android-ci:release "${IMAGE}:v${MAJOR}"
           docker tag android-ci:release "${IMAGE}:latest"
           if [ -n "${BUILD_TOOLS}" ]; then
             docker tag android-ci:release "${IMAGE}:${BUILD_TOOLS}"
@@ -200,12 +186,43 @@ jobs:
           docker push "${IMAGE}:${VERSION}"
           docker push "${IMAGE}:${TAG}"
           docker push "${IMAGE}:${MAJOR}"
+          docker push "${IMAGE}:v${MAJOR}"
           docker push "${IMAGE}:latest"
           if [ -n "${BUILD_TOOLS}" ]; then
             docker push "${IMAGE}:${BUILD_TOOLS}"
           fi
 
-          echo "Pushed tags: ${VERSION} ${TAG} ${MAJOR} latest ${BUILD_TOOLS}"
+          DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE}:${VERSION}" | cut -d@ -f2)"
+          echo "digest=${DIGEST}" >> "${GITHUB_OUTPUT}"
+          echo "Pushed ${IMAGE} tags: ${VERSION} ${TAG} ${MAJOR} v${MAJOR} latest ${BUILD_TOOLS}"
+          echo "Digest: ${DIGEST}"
+
+      - name: Generate image SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+          artifact-name: sbom.spdx.json
+          output-file: sbom.spdx.json
+          format: spdx-json
+          upload-artifact: true
+          upload-release-assets: false
+
+      - name: Attest image provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ steps.meta.outputs.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Update moving major tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "${MAJOR_TAG}" "${TAG}"
+          git push origin "refs/tags/${MAJOR_TAG}" --force
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          MAJOR_TAG: ${{ steps.meta.outputs.major_tag }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -213,4 +230,6 @@ jobs:
           tag_name: ${{ steps.meta.outputs.tag }}
           name: ${{ steps.meta.outputs.tag }}
           body_path: release-notes.md
+          files: sbom.spdx.json
+          fail_on_unmatched_files: true
           generate_release_notes: false
