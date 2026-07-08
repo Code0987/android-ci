@@ -162,7 +162,21 @@ jobs:
             set -euo pipefail
             test -d "${ANDROID_HOME}/cmdline-tools/latest/bin"
             test -d "${ANDROID_HOME}/build-tools/36.0.0"
+            test -x /android-ci-entrypoint
           '
+          docker run --rm --entrypoint /android-ci-entrypoint android-ci:release 'echo action-ok' | grep -q action-ok
+
+      - name: Verify action.yml image tag matches VERSION
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          version = Path("VERSION").read_text().strip()
+          action = Path("action.yml").read_text()
+          expected = f"ghcr.io/code0987/android-ci:{version}"
+          if expected not in action:
+              raise SystemExit(f"::error::action.yml must reference {expected}")
+          print(f"action.yml image tag OK: {expected}")
+          PY
 
       - name: Tag and push to GHCR
         id: push

@@ -7,6 +7,8 @@ on:
       - Dockerfile
       - packages.txt
       - VERSION
+      - action.yml
+      - entrypoint.sh
       - .github/workflows/build.yml
       - .github/workflows/release.yml
   pull_request:
@@ -15,6 +17,8 @@ on:
       - Dockerfile
       - packages.txt
       - VERSION
+      - action.yml
+      - entrypoint.sh
       - .github/workflows/build.yml
       - .github/workflows/release.yml
   workflow_dispatch:
@@ -82,3 +86,14 @@ jobs:
             echo "ANDROID_HOME=${ANDROID_HOME}"
             echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
           '
+
+      - name: Smoke test — action entrypoint
+        run: |
+          docker run --rm --entrypoint /android-ci-entrypoint android-ci:test 'echo action-ok' | tee /tmp/action-out.txt
+          grep -q 'action-ok' /tmp/action-out.txt
+          set +e
+          docker run --rm --entrypoint /android-ci-entrypoint android-ci:test ''
+          status=$?
+          set -e
+          test "$status" -ne 0
+

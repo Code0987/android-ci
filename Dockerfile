@@ -51,4 +51,8 @@ RUN mkdir -p /root/.android \
     && rm -rf /tmp/* /var/tmp/* \
     && sdkmanager --list_installed
 
+# GitHub Action entrypoint (action.yml overrides entrypoint; default CMD stays a shell)
+COPY entrypoint.sh /android-ci-entrypoint
+RUN chmod +x /android-ci-entrypoint
+
 WORKDIR /project

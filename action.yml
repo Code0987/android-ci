@@ -1,0 +1,21 @@
+name: 'Android CI'
+description: >-
+  Run shell commands inside a modern Android CI container (Ubuntu 24.04,
+  JDK 17, Android SDK platforms 34–36, build-tools 36).
+author: 'code0987 <durgapalneeraj@gmail.com>'
+branding:
+  icon: 'smartphone'
+  color: 'green'
+
+inputs:
+  args:
+    description: 'Shell commands to run inside the Android CI container'
+    required: true
+
+runs:
+  using: 'docker'
+  # Prebuilt GHCR image (matches VERSION). Avoids rebuilding the multi‑GB SDK image every job.
+  image: 'docker://ghcr.io/code0987/android-ci:2.1.0'
+  entrypoint: '/android-ci-entrypoint'
+  args:
+    - ${{ inputs.args }}

@@ -39,6 +39,43 @@ Compared to the previous image (Ubuntu 18.04 / JDK 8 / API 25–30 on Docker Hub
 - **Node, Yarn, git-secret removed** — install in your job if needed
 - Obsolete SDK “extras” (m2repository, constraint-layout packages) removed; use Maven
 
+
+## As a GitHub Action
+
+Run Gradle (or any shell) inside the published image without configuring `jobs.*.container` yourself:
+
+```yml
+name: Android CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build debug APK
+        uses: Code0987/android-ci@v2.1.0
+        with:
+          args: |
+            chmod +x ./gradlew
+            ./gradlew assembleDebug --no-daemon
+```
+
+| Input | Required | Description |
+|-------|----------|-------------|
+| `args` | yes | Shell commands executed in the container (workspace is the default cwd; `GRADLE_USER_HOME` defaults to `$GITHUB_WORKSPACE/.gradle`) |
+
+Pin a release tag (`@v2.1.0` or `@v2`). The action uses the prebuilt GHCR image so jobs do **not** rebuild the SDK image each run.
+
+### Action vs container
+
+| Approach | When to use |
+|----------|-------------|
+| `uses: Code0987/android-ci@v2.1.0` | Simple single-step builds via `args` |
+| `container: ghcr.io/code0987/android-ci:2.1.0` | Multi-step jobs, artifacts, caching helpers on the job |
+
 ## Sample usages
 
 ### GitHub Actions
@@ -53,7 +90,7 @@ on: [push, pull_request]
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: ghcr.io/code0987/android-ci:2.0.0
+    container: ghcr.io/code0987/android-ci:2.1.0
 
     steps:
       - uses: actions/checkout@v4
@@ -72,7 +109,7 @@ If the package is private, add a login step with `GITHUB_TOKEN` or a PAT that ca
 *.gitlab-ci.yml*
 
 ```yml
-image: ghcr.io/code0987/android-ci:2.0.0
+image: ghcr.io/code0987/android-ci:2.1.0
 
 before_script:
   - export GRADLE_USER_HOME="$CI_PROJECT_DIR/.gradle"
@@ -98,8 +135,8 @@ build:
 ### Local
 
 ```bash
-docker pull ghcr.io/code0987/android-ci:2.0.0
-docker run --rm -v "$PWD":/project -w /project ghcr.io/code0987/android-ci:2.0.0 \
+docker pull ghcr.io/code0987/android-ci:2.1.0
+docker run --rm -v "$PWD":/project -w /project ghcr.io/code0987/android-ci:2.1.0 \
   ./gradlew assembleDebug --no-daemon
 ```
 
@@ -133,13 +170,13 @@ Images are published to **GHCR** on version tags (`vMAJOR.MINOR.PATCH`) via `.gi
 
 | Tag | Meaning |
 |-----|---------|
-| `2.0.0` / `v2.0.0` | This release |
+| `2.1.0` / `v2.1.0` | This release |
 | `2` / `v2` | Latest v2.x |
 | `36.0.0` | Build-tools version (legacy naming) |
 | `latest` | Latest stable release |
 
 ```bash
-docker pull ghcr.io/code0987/android-ci:2.0.0
+docker pull ghcr.io/code0987/android-ci:2.1.0
 ```
 
 See [CHANGELOG.md](CHANGELOG.md).
