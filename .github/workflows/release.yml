@@ -60,21 +60,24 @@ jobs:
       - name: Resolve tag metadata
         id: meta
         run: |
+          set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
-          VERSION=$(tr -d '[:space:]' < VERSION)
+          VERSION="$(tr -d "[:space:]" < VERSION)"
           EXPECTED="v${VERSION}"
-          if [ "$TAG" != "$EXPECTED" ]; then
-            echo "::error::Tag '$TAG' does not match VERSION file ('$EXPECTED')."
+          if [ "${TAG}" != "${EXPECTED}" ]; then
+            echo "::error::Tag ${TAG} does not match VERSION file ${EXPECTED}"
             exit 1
           fi
-          # build-tools version from packages.txt (historical Docker tag style)
-          BUILD_TOOLS=$(grep -E '^build-tools;' packages.txt | head -1 | cut -d'; -f2)
+          BUILD_TOOLS="$(awk -F'; '/^build-tools;/ {print $2; exit}' packages.txt)"
           MAJOR="${VERSION%%.*}"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
-          echo "build_tools=$BUILD_TOOLS" >> "$GITHUB_OUTPUT"
-          echo "image=${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=${TAG}"
+            echo "version=${VERSION}"
+            echo "major=${MAJOR}"
+            echo "build_tools=${BUILD_TOOLS}"
+            echo "image=${IMAGE_NAME}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "Resolved version=${VERSION} build_tools=${BUILD_TOOLS}"
 
       - name: Extract changelog section
         run: |
@@ -175,7 +178,7 @@ jobs:
             docker push "${IMAGE}:${BUILD_TOOLS}"
           fi
 
-          echo "Pushed ${IMAGE}:{${VERSION},${TAG},${MAJOR},latest${BUILD_TOOLS:+,${BUILD_TOOLS}}}"
+          echo "Pushed tags: ${VERSION} ${TAG} ${MAJOR} latest ${BUILD_TOOLS}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
